@@ -33,6 +33,7 @@ jobs:
     if: github.event_name != 'pull_request' && ((github.ref == 'refs/heads/dss') || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
 
+    steps:
       - name: Setup mill
         uses: jodersky/setup-mill@master
         with:
