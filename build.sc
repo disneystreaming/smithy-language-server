@@ -19,7 +19,7 @@ object lsp extends MavenModule with PublishModule {
 
   def pomSettings = PomSettings(
     description = "LSP implementation for smithy",
-    organization = "com.disneystreaming.oss",
+    organization = "com.disneystreaming.smithy",
     url = "https://github.com/disneystreaming/smithy-language-server",
     licenses = Seq(License.`Apache-2.0`),
     versionControl = VersionControl(
@@ -29,6 +29,14 @@ object lsp extends MavenModule with PublishModule {
   )
 
   def gitVersion: T[String] = T.input {
+
+    val gitDirty =
+      os.proc("git", "diff", "HEAD").call().out.lines.nonEmpty
+
+    if (gitDirty) sys.error("Dirty workspace !")
+
+    val commitHash =
+      os.proc("git", "rev-parse", "--short", "HEAD").call().out.lines.head.trim
 
     val describeResult = os
       .proc(
@@ -50,14 +58,14 @@ object lsp extends MavenModule with PublishModule {
       .lines
       .lastOption
       .map(_.replaceAll("-([0-9]+)-g([0-9a-f]{8})", "+$1-$2"))
-      .getOrElse("v0.0.0-SNAPSHOT")
+      .getOrElse(s"v0.0.0-$commitHash")
     parseVersion(describeResult)
   }
 
-  def masterBranch: T[String] = "dss"
+  def mainBranch: T[String] = "dss"
 
   def latestTag: T[Option[String]] = T {
-    val branch = masterBranch()
+    val branch = mainBranch()
     os.proc("git", "describe", branch, "--abbrev=0", "--tags")
       .call()
       .out
