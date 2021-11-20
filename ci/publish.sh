@@ -9,7 +9,7 @@ gpg --import  --no-tty --batch --yes gpg_key
 rm gpg_key
 
 mill lsp.publish \
-      --credentials $SONATYPE_USERNAME:$SONATYPE_PASSWORD \
-      --gpgArgs --passphrase=$PGP_PASSPHRASE,--no-tty,--pinentry-mode,loopback,--batch,--yes,-a,-b \
-      --release true
-      --signed true
+      --sonatypeCreds $SONATYPE_USERNAME:$SONATYPE_PASSWORD \
+      --signed true \
+      --release true \
+      --gpgArgs --passphrase=$PGP_PASSPHRASE,--no-tty,--pinentry-mode,loopback,--batch,--yes,-a,-b
