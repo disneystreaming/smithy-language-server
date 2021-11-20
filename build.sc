@@ -25,7 +25,7 @@ object lsp extends MavenModule with PublishModule {
     versionControl = VersionControl(
       Some("https://github.com/disneystreaming/smithy-language-server")
     ),
-    developers = Seq()
+    Seq(Developer("baccata", "Olivier Mélois", "https://github.com/baccata"))
   )
 
   def gitVersion: T[String] = T.input {
