@@ -41,9 +41,6 @@ object lsp extends MavenModule with PublishModule {
     val describeResult = os
       .proc(
         "git",
-        "submodule",
-        "foreach",
-        "git",
         "describe",
         "--long",
         "--tags",
@@ -74,12 +71,12 @@ object lsp extends MavenModule with PublishModule {
   }
 
   object int {
-    def unapply(s: String) = Try(s.toInt).toOption
+    def unapply(s: String) = s.toIntOption
   }
 
   object distanceToTag {
     def unapply(s: String): Option[Int] = {
-      Option(s).flatMap(s => Try(s.toInt).toOption).orElse(Some(0))
+      Option(s).flatMap(_.toIntOption).orElse(Some(0))
     }
   }
 
