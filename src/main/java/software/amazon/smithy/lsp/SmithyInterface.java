@@ -74,10 +74,6 @@ public final class SmithyInterface {
       // Adding the model that was loaded from upstream dependencies.
       assembler.addModel(builder.build());
 
-      for (File jar : externalJars) {
-        assembler = assembler.addImport(jar.getAbsolutePath());
-      }
-
       for (File file : files) {
         assembler = assembler.addImport(file.getAbsolutePath());
       }
