@@ -21,14 +21,12 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Collection;
 import java.util.List;
-import java.util.ServiceLoader;
 import java.util.stream.Collectors;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import software.amazon.smithy.lsp.ext.LspLog;
 import software.amazon.smithy.model.Model;
 import software.amazon.smithy.model.loader.ModelAssembler;
 import software.amazon.smithy.model.validation.ValidatedResult;
-import software.amazon.smithy.model.validation.Validator;
 
 public final class SmithyInterface {
   private SmithyInterface() {
