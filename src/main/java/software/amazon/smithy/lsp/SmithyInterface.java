@@ -21,11 +21,14 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Collection;
 import java.util.List;
+import java.util.ServiceLoader;
 import java.util.stream.Collectors;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
+import software.amazon.smithy.lsp.ext.LspLog;
 import software.amazon.smithy.model.Model;
 import software.amazon.smithy.model.loader.ModelAssembler;
 import software.amazon.smithy.model.validation.ValidatedResult;
+import software.amazon.smithy.model.validation.Validator;
 
 public final class SmithyInterface {
   private SmithyInterface() {
@@ -46,7 +49,7 @@ public final class SmithyInterface {
     try {
       Model.Builder builder = Model.builder();
 
-      List<URL> urls = files.stream().map(SmithyInterface::fileToUrl).collect(Collectors.toList());
+      List<URL> urls = externalJars.stream().map(SmithyInterface::fileToUrl).collect(Collectors.toList());
       URL[] urlArray = urls.toArray(new URL[urls.size()]);
 
       if (urlArray.length > 0) {
@@ -55,8 +58,8 @@ public final class SmithyInterface {
         // shapes to the builder.
         //
         // Contrary to model assemblers, model builders do not complain about the
-        // duplication
-        // of shapes. Shapes will simply overwrite each other in a "last write wins"
+        // duplication of shapes. Shapes will simply overwrite each other in a "last
+        // write wins"
         // kind of way.
 
         URLClassLoader urlClassLoader = new URLClassLoader(urlArray);
@@ -66,11 +69,12 @@ public final class SmithyInterface {
 
       ModelAssembler assembler;
       if (urlArray.length > 0) {
-        URLClassLoader validatorClassLoader = new URLClassLoader(urlArray, Model.class.getClassLoader());
+        URLClassLoader validatorClassLoader = new URLClassLoader(urlArray, SmithyInterface.class.getClassLoader());
         assembler = Model.assembler(validatorClassLoader);
       } else {
         assembler = Model.assembler();
       }
+
       // Adding the model that was loaded from upstream dependencies.
       assembler.addModel(builder.build());
 
@@ -80,6 +84,7 @@ public final class SmithyInterface {
 
       return Either.forRight(assembler.assemble());
     } catch (Exception e) {
+      LspLog.println(e);
       return Either.forLeft(e);
     }
   }
