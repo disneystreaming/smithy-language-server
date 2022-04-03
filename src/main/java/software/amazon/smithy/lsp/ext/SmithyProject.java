@@ -118,8 +118,9 @@ public final class SmithyProject {
      * @return either an error or a loaded project
      */
     public static Either<Exception, SmithyProject> load(SmithyBuildExtensions config, File root) {
-        List<Path> imports = config.getImports().stream().map(p -> Paths.get(root.getAbsolutePath(), p).normalize())
-                .collect(Collectors.toList());
+        List<Path> imports =
+            config.getImports().stream()
+                .map(p -> root.toPath().resolve(p).toAbsolutePath().normalize()).collect(Collectors.toList());
 
         if (imports.isEmpty()) {
             imports.add(root.toPath());
