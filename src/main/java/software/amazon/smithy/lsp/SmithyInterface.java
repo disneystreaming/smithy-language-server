@@ -46,7 +46,7 @@ public final class SmithyInterface {
       Model.Builder builder = Model.builder();
 
       URL[] urlArray = externalJars.stream().map(SmithyInterface::fileToUrl).toArray(URL[]::new);
-
+      ModelAssembler assembler;
       if (urlArray.length > 0) {
         // Loading the model just from upstream dependencies, in isolation, and adding
         // all its shapes to the builder.
@@ -57,20 +57,22 @@ public final class SmithyInterface {
         URLClassLoader urlClassLoader = new URLClassLoader(urlArray);
         Model upstreamModel = Model.assembler()
                 .putProperty(ModelAssembler.ALLOW_UNKNOWN_TRAITS, true)
-                .discoverModels(urlClassLoader)
-                .assemble()
-                .unwrap();
+                .discoverModels(urlClassLoader).assemble().unwrap();
         builder.addShapes(upstreamModel);
+
+        // It's important to use the urlClassLoader with the ModelAssembler if it's available
+        // because it will be used to pick up different validator and trait services. You want
+        // thoses validators to be available when assembling the model containing this workspace's
+        // definitions
+        assembler = Model.assembler(urlClassLoader).addModel(builder.build());
+      } else {
+        assembler = Model.assembler();
       }
 
-      ModelAssembler assembler = Model.assembler()
-              // We don't want the model to be broken when there are unknown traits,
-              // because that will essentially disable language server features.
-              .putProperty(ModelAssembler.ALLOW_UNKNOWN_TRAITS, true)
-              .addModel(builder.build());
+      assembler.addModel(builder.build());
 
       for (File file : files) {
-        assembler = assembler.addImport(file.getAbsolutePath());
+        assembler.addImport(file.getAbsolutePath());
       }
 
       return Either.forRight(assembler.assemble());
