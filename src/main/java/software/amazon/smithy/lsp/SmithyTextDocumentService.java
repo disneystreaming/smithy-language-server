@@ -183,7 +183,11 @@ public class SmithyTextDocumentService implements TextDocumentService {
 
         try {
             String documentUri = params.getTextDocument().getUri();
-            String token = findToken(documentUri, params.getPosition());
+            Optional<String> maybeToken = findToken(documentUri, params.getPosition());
+            if (!maybeToken.isPresent()) {
+                return Utils.completableFuture(Either.forLeft(Collections.emptyList()));
+            }
+            String token = maybeToken.get();
             DocumentPreamble preamble = Document.detectPreamble(textBufferContents(documentUri));
 
             boolean isTraitShapeId = isTraitShapeId(documentUri, params.getPosition());
@@ -342,8 +346,11 @@ public class SmithyTextDocumentService implements TextDocumentService {
         return contents;
     }
 
-    private String findToken(String path, Position p) throws IOException {
+    private Optional<String> findToken(String path, Position p) throws IOException {
         List<String> contents = textBufferContents(path);
+        if (contents.isEmpty()) {
+            return Optional.empty();
+        }
 
         String line = contents.get(p.getLine());
         int col = p.getCharacter();
@@ -379,7 +386,7 @@ public class SmithyTextDocumentService implements TextDocumentService {
             }
         }
 
-        return beforeAcc.reverse().append(afterAcc).toString();
+        return Optional.of(beforeAcc.reverse().append(afterAcc).toString());
     }
 
     private String getLine(List<String> lines, Position position) {
@@ -401,10 +408,14 @@ public class SmithyTextDocumentService implements TextDocumentService {
             List<Location> locations;
             Optional<ShapeId> initialShapeId = project.getShapeIdFromLocation(params.getTextDocument().getUri(),
                     params.getPosition());
-            String found = findToken(params.getTextDocument().getUri(), params.getPosition());
+            Optional<String> maybeToken = findToken(params.getTextDocument().getUri(), params.getPosition());
+            if (!maybeToken.isPresent()) {
+                return Utils.completableFuture(Either.forLeft(Collections.emptyList()));
+            }
+            String found = maybeToken.get();
             if (initialShapeId.isPresent()) {
                 Model model = project.getModel().unwrap();
-                Shape initialShape = model.getShape(initialShapeId.get()).get();
+                Shape initialShape = model.expectShape(initialShapeId.get());
                 Optional<Shape> target = getTargetShape(initialShape, found, model);
 
                 // Use location of target shape or default to the location of the initial shape.
@@ -441,10 +452,14 @@ public class SmithyTextDocumentService implements TextDocumentService {
         try {
             Shape shapeToSerialize;
             Model model = project.getModel().unwrap();
-            String token = findToken(params.getTextDocument().getUri(), params.getPosition());
+            Optional<String> maybeToken = findToken(params.getTextDocument().getUri(), params.getPosition());
+            if (!maybeToken.isPresent()) {
+                return Utils.completableFuture(new Hover());
+            }
+            String token = maybeToken.get();
             LspLog.println("Found token: " + token);
             if (initialShapeId.isPresent()) {
-                Shape initialShape = model.getShape(initialShapeId.get()).get();
+                Shape initialShape = model.expectShape(initialShapeId.get());
                 Optional<Shape> target = initialShape.asMemberShape()
                         .map(memberShape -> model.getShape(memberShape.getTarget()))
                         .orElse(getTargetShape(initialShape, token, model));
@@ -461,7 +476,8 @@ public class SmithyTextDocumentService implements TextDocumentService {
                 content.setValue(getHoverContentsForShape(shapeToSerialize, model));
             }
         } catch (Exception e) {
-            LspLog.println("Failed to determine hover content: " + e);
+            LspLog.println("Failed to determine hover content:");
+            LspLog.println(e);
         }
 
         hover.setContents(content);
@@ -482,7 +498,7 @@ public class SmithyTextDocumentService implements TextDocumentService {
                     }
                 })
                 .filter(shapeId -> shapeId.getName().equals(token))
-                .map(shapeId -> model.getShape(shapeId).get())
+                .map(model::expectShape)
                 .findFirst();
     }
 
