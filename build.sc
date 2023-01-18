@@ -24,6 +24,10 @@ object lsp extends MavenModule with PublishModule {
     )
   }
 
+  override def javadocOptions: T[Seq[String]] = T {
+    super.javacOptions() ++ Seq("-Xdoclint:none")
+  }
+
   override def artifactName = s"smithy-language-server"
 
   def pomSettings = PomSettings(
