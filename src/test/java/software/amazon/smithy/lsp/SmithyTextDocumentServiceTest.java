@@ -39,6 +39,8 @@ import org.eclipse.lsp4j.DiagnosticSeverity;
 import org.eclipse.lsp4j.DidChangeTextDocumentParams;
 import org.eclipse.lsp4j.DidOpenTextDocumentParams;
 import org.eclipse.lsp4j.DidSaveTextDocumentParams;
+import org.eclipse.lsp4j.DocumentSymbol;
+import org.eclipse.lsp4j.DocumentSymbolParams;
 import org.eclipse.lsp4j.Hover;
 import org.eclipse.lsp4j.HoverParams;
 import org.eclipse.lsp4j.Location;
@@ -49,6 +51,8 @@ import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.PublishDiagnosticsParams;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.ShowMessageRequestParams;
+import org.eclipse.lsp4j.SymbolInformation;
+import org.eclipse.lsp4j.SymbolKind;
 import org.eclipse.lsp4j.TextDocumentContentChangeEvent;
 import org.eclipse.lsp4j.TextDocumentIdentifier;
 import org.eclipse.lsp4j.TextDocumentItem;
@@ -210,7 +214,7 @@ public class SmithyTextDocumentServiceTest {
     }
 
     @Test
-    public void hoverOnBrokenShapeShowsErrorMessage() throws Exception {
+    public void hoverOnBrokenShapeAppendsValidations() throws Exception {
         Path baseDir = Paths.get(getClass().getResource("ext/models").toURI());
         String modelFilename = "unknown-trait.smithy";
         Path modelFilePath = baseDir.resolve(modelFilename);
@@ -223,7 +227,10 @@ public class SmithyTextDocumentServiceTest {
             TextDocumentIdentifier tdi = new TextDocumentIdentifier(hs.file(modelFilename).toString());
             Hover hover = tds.hover(hoverParams(tdi, 10, 13)).get();
             MarkupContent hoverContent = hover.getContents().getRight();
-            assertTrue(hoverContent.getValue().startsWith("Can't display shape"));
+            assertEquals(hoverContent.getKind(),"markdown");
+            assertTrue(hoverContent.getValue().startsWith("```smithy"));
+            assertTrue(hoverContent.getValue().contains("structure Foo {}"));
+            assertTrue(hoverContent.getValue().contains("WARNING: Unable to resolve trait `com.external#unknownTrait`"));
         }
     }
 
@@ -549,9 +556,9 @@ public class SmithyTextDocumentServiceTest {
 
             // Resolves via resource read.
             Hover readHover = tds.hover(hoverParams(mainTdi, 76, 12)).get();
-            correctHover(mainHoverPrefix, "@http(\n    method: \"PUT\"\n    uri: \"/bar\"\n    code: 200\n)\n@readonly\n"
-                    + "operation MyOperation {\n    input: MyOperationInput\n    output: MyOperationOutput\n"
-                    + "    errors: [\n        MyError\n    ]\n}", readHover);
+            assertTrue(readHover.getContents().getRight().getValue().contains("@http(\n    method: \"PUT\"\n    "
+                    + "uri: \"/bar\"\n    code: 200\n)\n@readonly\noperation MyOperation {\n    input: "
+                    + "MyOperationInput\n    output: MyOperationOutput\n    errors: [\n        MyError\n    ]\n}"));
 
             // Does not correspond to shape.
             Hover noMatchHover = tds.hover(hoverParams(mainTdi, 0, 0)).get();
@@ -662,9 +669,9 @@ public class SmithyTextDocumentServiceTest {
 
             // Resolves via resource read.
             Hover readHover = tds.hover(hoverParams(mainTdi, 78, 12)).get();
-            correctHover(mainHoverPrefix, "@http(\n    method: \"PUT\"\n    uri: \"/bar\"\n    code: 200\n)\n@readonly\n"
-                    + "operation MyOperation {\n    input: MyOperationInput\n    output: MyOperationOutput\n"
-                    + "    errors: [\n        MyError\n    ]\n}", readHover);
+            assertTrue(readHover.getContents().getRight().getValue().contains("@http(\n    method: \"PUT\"\n    "
+                    + "uri: \"/bar\"\n    code: 200\n)\n@readonly\noperation MyOperation {\n    input: "
+                    + "MyOperationInput\n    output: MyOperationOutput\n    errors: [\n        MyError\n    ]\n}"));
 
             // Does not correspond to shape.
             Hover noMatchHover = tds.hover(hoverParams(mainTdi, 0, 0)).get();
@@ -859,6 +866,35 @@ public class SmithyTextDocumentServiceTest {
 
             tds.didOpen(new DidOpenTextDocumentParams(textDocumentItem(hs.file(fileName3), files.get(fileName3))));
             assertEquals(0, fileDiagnostics(hs.file(fileName3), client.diagnostics).size());
+        }
+
+    }
+
+    @Test
+    public void documentSymbols() throws Exception {
+        Path baseDir = Paths.get(SmithyProjectTest.class.getResource("models/document-symbols").toURI());
+
+        String currentFile = "current.smithy";
+        String anotherFile = "another.smithy";
+
+        List<Path> files = ListUtils.of(baseDir.resolve(currentFile),baseDir.resolve(anotherFile));
+
+        try (Harness hs = Harness.create(SmithyBuildExtensions.builder().build(), files)) {
+            SmithyTextDocumentService tds = new SmithyTextDocumentService(Optional.empty(), hs.getTempFolder());
+            tds.createProject(hs.getConfig(), hs.getRoot());
+
+            TextDocumentIdentifier currentDocumentIdent = new TextDocumentIdentifier(uri(hs.file(currentFile)));
+
+            List<Either<SymbolInformation, DocumentSymbol>> symbols =
+                    tds.documentSymbol(new DocumentSymbolParams(currentDocumentIdent)).get();
+
+            assertEquals(2, symbols.size());
+
+            assertEquals("city", symbols.get(0).getRight().getName());
+            assertEquals(SymbolKind.Field, symbols.get(0).getRight().getKind());
+
+            assertEquals("Weather", symbols.get(1).getRight().getName());
+            assertEquals(SymbolKind.Struct, symbols.get(1).getRight().getKind());
         }
 
     }
