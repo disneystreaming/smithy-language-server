@@ -130,4 +130,15 @@ object lsp extends MavenModule with PublishModule {
     s"$version$dirtySuffix"
   }
 
+  def writeVersion: T[PathRef] = T {
+    val version = publishVersion()
+    val targetDir = T.ctx().dest / "resources"
+
+    os.makeDir.all(targetDir)
+    os.write(targetDir / "version.properties", s"version=$version")
+    PathRef(targetDir)
+  }
+
+  override def localClasspath = super.localClasspath() :+ writeVersion()
+
 }
