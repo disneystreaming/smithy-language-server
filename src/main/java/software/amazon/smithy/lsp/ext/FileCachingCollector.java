@@ -63,7 +63,12 @@ final class FileCachingCollector implements ShapeLocationCollector {
         this.membersToUpdateMap = new HashMap<>();
 
         for (ModelFile modelFile : this.fileCache.values()) {
-            collectContainerShapeLocationsInModelFile(modelFile);
+            try {
+                collectContainerShapeLocationsInModelFile(modelFile);
+            } catch (Exception e) {
+                throw new RuntimeException("Exception while collecting container shape locations in model file: "
+                        + modelFile.filename, e);
+            }
         }
 
         operationsWithInlineInputOutputMap.forEach((this::collectInlineInputOutputLocations));
@@ -234,9 +239,12 @@ final class FileCachingCollector implements ShapeLocationCollector {
         ) {
             String suffix = getOperationInputOrOutputSuffix(shape, preamble);
             String shapeName = shape.getId().getName();
+
             String matchingOperationName = shapeName.substring(0, shapeName.length() - suffix.length());
+            ShapeId matchingOperationId = ShapeId.fromParts(shape.getId().getNamespace(), matchingOperationName);
+
             return model.shapes(OperationShape.class)
-                    .filter(operationShape -> operationShape.getId().getName().equals(matchingOperationName))
+                    .filter(operationShape -> operationShape.getId().equals(matchingOperationId))
                     .findFirst()
                     .filter(operation -> shapeWasDefinedInline(operation, shape, modelFile));
         }
