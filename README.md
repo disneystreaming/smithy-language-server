@@ -2,7 +2,7 @@
 [![Build Status](https://github.com/disneystreaming/smithy-language-server/workflows/ci/badge.svg)](https://github.com/disneystreaming/smithy-language-server/actions/workflows/ci.yml)
 
 A [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
-implementation for the [Smithy IDL](https://awslabs.github.io/smithy/).
+implementation for the [Smithy IDL](https://smithy.io).
 
 ## Security
 
