@@ -12,7 +12,7 @@ object lsp extends MavenModule with PublishModule {
     ivy"software.amazon.smithy:smithy-model:1.35.0",
     ivy"software.amazon.smithy:smithy-cli:1.35.0",
     ivy"io.get-coursier:interface:1.0.4",
-    ivy"com.disneystreaming.smithy:smithytranslate-formatter-jvm-java-api:0.3.4"
+    ivy"com.disneystreaming.smithy:smithytranslate-formatter-jvm-java-api:0.3.10"
   )
 
   def publishVersion = T { gitVersion() }
