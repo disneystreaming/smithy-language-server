@@ -7,6 +7,7 @@ gpg --version
 echo "$PGP_SECRET" | base64 --decode > gpg_key
 
 gpg --import  --no-tty --batch --yes gpg_key
+gpg --list-keys
 
 rm gpg_key
 
