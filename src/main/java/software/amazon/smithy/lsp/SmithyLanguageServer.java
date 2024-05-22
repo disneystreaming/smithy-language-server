@@ -110,13 +110,10 @@ import software.amazon.smithy.lsp.protocol.RangeAdapter;
 import software.amazon.smithy.lsp.protocol.UriAdapter;
 import software.amazon.smithy.lsp.util.Result;
 import software.amazon.smithy.model.SourceLocation;
-import software.amazon.smithy.model.loader.IdlTokenizer;
 import software.amazon.smithy.model.selector.Selector;
 import software.amazon.smithy.model.shapes.Shape;
 import software.amazon.smithy.model.validation.Severity;
 import software.amazon.smithy.model.validation.ValidationEvent;
-import software.amazon.smithy.syntax.Formatter;
-import software.amazon.smithy.syntax.TokenTree;
 import software.amazon.smithy.utils.IoUtils;
 
 public class SmithyLanguageServer implements
@@ -630,12 +627,16 @@ public class SmithyLanguageServer implements
             return completedFuture(Collections.emptyList());
         }
 
-        IdlTokenizer tokenizer = IdlTokenizer.create(uri, document.borrowText());
-        TokenTree tokenTree = TokenTree.of(tokenizer);
-        String formatted = Formatter.format(tokenTree);
-        Range range = document.getFullRange();
-        TextEdit edit = new TextEdit(range, formatted);
-        return completedFuture(Collections.singletonList(edit));
+        smithyfmt.Result result = smithyfmt.Formatter.format(document.borrowText().toString());
+        if (result.isSuccess()) {
+            final String formatted = result.getValue();
+
+            Range range = document.getFullRange();
+            TextEdit edit = new TextEdit(range, formatted);
+            return completedFuture(Collections.singletonList(edit));
+        } else {
+            throw new RuntimeException("Failed to format document: " + result.getError());
+        }
     }
 
     private void triggerUpdate(String uri) {
