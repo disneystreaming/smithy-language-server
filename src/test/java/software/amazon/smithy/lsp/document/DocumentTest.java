@@ -13,6 +13,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.Range;
 import org.hamcrest.CustomTypeSafeMatcher;
+import org.hamcrest.Description;
 import org.hamcrest.Matcher;
 import org.junit.jupiter.api.Test;
 import software.amazon.smithy.lsp.protocol.RangeAdapter;
@@ -466,6 +467,12 @@ public class DocumentTest {
             @Override
             protected boolean matchesSafely(CharSequence item) {
                 return other.replace("\n", "\\n").replace("\r", "\\r").equals(item.toString().replace("\n", "\\n").replace("\r", "\\r"));
+            }
+            @Override
+            public void describeMismatchSafely(CharSequence item, Description description) {
+                String o = other.replace("\n", "\\n").replace("\r", "\\r");
+                String it = item.toString().replace("\n", "\\n").replace("\r", "\\r");
+                equalTo(o).describeMismatch(it, description);
             }
         };
     }

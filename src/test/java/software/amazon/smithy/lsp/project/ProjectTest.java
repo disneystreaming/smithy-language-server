@@ -80,10 +80,10 @@ public class ProjectTest {
                 root.resolve("model"),
                 root.resolve("model2")));
         assertThat(project.getSmithyFiles().keySet(), hasItems(
-                containsString("model/main.smithy"),
-                containsString("model/subdir/sub.smithy"),
-                containsString("model2/subdir2/sub2.smithy"),
-                containsString("model2/subdir2/subsubdir/subsub.smithy")));
+                equalTo(root.resolve("model/main.smithy")),
+                equalTo(root.resolve("model/subdir/sub.smithy")),
+                equalTo(root.resolve("model2/subdir2/sub2.smithy")),
+                equalTo(root.resolve("model2/subdir2/subsubdir/subsub.smithy"))));
         assertThat(project.getModelResult().isBroken(), is(false));
         assertThat(project.getModelResult().unwrap(), hasShapeWithId("com.foo#Foo"));
         assertThat(project.getModelResult().unwrap(), hasShapeWithId("com.foo#Bar"));
