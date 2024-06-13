@@ -24,9 +24,11 @@ import software.amazon.smithy.model.node.NodeMapper;
 public class TestWorkspace {
     private static final NodeMapper MAPPER = new NodeMapper();
     private final Path root;
+    private SmithyBuildConfig config;
 
-    private TestWorkspace(Path root) {
+    private TestWorkspace(Path root, SmithyBuildConfig config) {
         this.root = root;
+        this.config = config;
     }
 
     /**
@@ -34,6 +36,10 @@ public class TestWorkspace {
      */
     public Path getRoot() {
         return root;
+    }
+
+    public SmithyBuildConfig getConfig() {
+        return config;
     }
 
     /**
@@ -50,7 +56,8 @@ public class TestWorkspace {
      */
     public void addModel(String relativePath, String model) {
         try {
-            Files.write(root.resolve(relativePath), model.getBytes(StandardCharsets.UTF_8));
+            Files.write(root.resolve(relativePath), model.replace("\n", System.lineSeparator())
+                    .getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -70,6 +77,11 @@ public class TestWorkspace {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public void updateConfig(SmithyBuildConfig newConfig) {
+        writeConfig(root, newConfig);
+        this.config = newConfig;
     }
 
     /**
@@ -95,7 +107,7 @@ public class TestWorkspace {
     /**
      * @param models Strings of the models to create in the workspace
      * @return A workspace with n models, each "model-n.smithy", with their given contents,
-     *  and a smithy-build.json with sources = [..."model-n.smithy"]
+     *  and a smithy-build.json with sources = ["model-0.smithy", ..., "model-n.smithy"]
      */
     public static TestWorkspace multipleModels(String... models) {
         Builder builder = builder();
@@ -161,7 +173,8 @@ public class TestWorkspace {
 
         private static void writeModels(Path toDir, Map<String, String> models) throws Exception {
             for (Map.Entry<String, String> entry : models.entrySet()) {
-                Files.write(toDir.resolve(entry.getKey()), entry.getValue().getBytes(StandardCharsets.UTF_8));
+                Files.write(toDir.resolve(entry.getKey()),
+                        entry.getValue().getBytes(StandardCharsets.UTF_8));
             }
         }
     }
@@ -222,15 +235,24 @@ public class TestWorkspace {
                             .imports(imports)
                             .build();
                 }
-                String configString = Node.prettyPrintJson(MAPPER.serialize(config));
-                Files.write(root.resolve("smithy-build.json"), configString.getBytes(StandardCharsets.UTF_8));
+                writeConfig(root, config);
 
                 writeModels(root);
 
-                return new TestWorkspace(root);
+                return new TestWorkspace(root, config);
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
+        }
+    }
+
+    private static void writeConfig(Path root, SmithyBuildConfig config) {
+        String configString = Node.prettyPrintJson(MAPPER.serialize(config));
+        Path configPath = root.resolve("smithy-build.json");
+        try {
+            Files.write(configPath, configString.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
     }
 }

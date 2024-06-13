@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -19,8 +20,12 @@ import java.util.stream.Collectors;
 import software.amazon.smithy.lsp.document.Document;
 import software.amazon.smithy.lsp.protocol.UriAdapter;
 import software.amazon.smithy.model.Model;
+import software.amazon.smithy.model.SourceLocation;
 import software.amazon.smithy.model.loader.ModelAssembler;
+import software.amazon.smithy.model.node.Node;
+import software.amazon.smithy.model.shapes.AbstractShapeBuilder;
 import software.amazon.smithy.model.shapes.Shape;
+import software.amazon.smithy.model.traits.Trait;
 import software.amazon.smithy.model.validation.ValidatedResult;
 import software.amazon.smithy.utils.IoUtils;
 
@@ -31,21 +36,24 @@ import software.amazon.smithy.utils.IoUtils;
 public final class Project {
     private static final Logger LOGGER = Logger.getLogger(Project.class.getName());
     private final Path root;
-    private final List<Path> sources;
-    private final List<Path> imports;
+    private final ProjectConfig config;
     private final List<Path> dependencies;
     private final Map<String, SmithyFile> smithyFiles;
     private final Supplier<ModelAssembler> assemblerFactory;
     private ValidatedResult<Model> modelResult;
+    // TODO: Move this into SmithyFileDependenciesIndex
+    private Map<String, Map<String, Node>> perFileMetadata;
+    private SmithyFileDependenciesIndex smithyFileDependenciesIndex;
 
     private Project(Builder builder) {
         this.root = Objects.requireNonNull(builder.root);
-        this.sources = builder.sources;
-        this.imports = builder.imports;
+        this.config = builder.config;
         this.dependencies = builder.dependencies;
         this.smithyFiles = builder.smithyFiles;
         this.modelResult = builder.modelResult;
         this.assemblerFactory = builder.assemblerFactory;
+        this.perFileMetadata = builder.perFileMetadata;
+        this.smithyFileDependenciesIndex = builder.smithyFileDependenciesIndex;
     }
 
     /**
@@ -69,19 +77,27 @@ public final class Project {
     }
 
     /**
-     * @return The paths of all Smithy sources, exactly as they were specified
-     *  in this project's smithy build configuration files
+     * @return The paths of all Smithy sources specified
+     *  in this project's smithy build configuration files,
+     *  normalized and resolved against {@link #getRoot()}.
      */
     public List<Path> getSources() {
-        return sources;
+        return config.getSources().stream()
+                .map(root::resolve)
+                .map(Path::normalize)
+                .collect(Collectors.toList());
     }
 
     /**
-     * @return The paths of all imports, exactly as they were specified in this
-     *  project's smithy build configuration files
+     * @return The paths of all Smithy imports specified
+     *  in this project's smithy build configuration files,
+     *  normalized and resolved against {@link #getRoot()}.
      */
     public List<Path> getImports() {
-        return imports;
+        return config.getImports().stream()
+                .map(root::resolve)
+                .map(Path::normalize)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -136,8 +152,7 @@ public final class Project {
      * @param uri The URI of the Smithy file to update
      */
     public void updateModelWithoutValidating(String uri) {
-        Document document = getDocument(uri);
-        updateModel(uri, document, false);
+        updateFiles(Collections.emptySet(), Collections.emptySet(), Collections.singleton(uri), false);
     }
 
     /**
@@ -146,98 +161,90 @@ public final class Project {
      * @param uri The URI of the Smithy file to update
      */
     public void updateAndValidateModel(String uri) {
-        Document document = getDocument(uri);
-        updateModel(uri, document, true);
+        updateFiles(Collections.emptySet(), Collections.emptySet(), Collections.singleton(uri), true);
     }
 
-    // TODO: This is a little all over the place
     /**
-     * Update the model with the contents of the given {@code document}, optionally
-     * running validation.
+     * Updates this project by adding and removing files. Runs model validation.
      *
-     * @param uri The URI of the Smithy file to update
-     * @param document The {@link Document} with updated contents
-     * @param validate Whether to run validation
-     */
-    public void updateModel(String uri, Document document, boolean validate) {
-        if (document == null || !modelResult.getResult().isPresent()) {
-            // TODO: At one point in testing, the server got stuck with a certain validation event
-            //  always being present, and no other features working. I haven't been able to reproduce
-            //  it, but I added these logs to check for it.
-            if (document == null) {
-                LOGGER.info("No document loaded for " + uri + ", skipping model load.");
-            }
-            if (!modelResult.getResult().isPresent()) {
-                LOGGER.info("No model loaded, skipping updating model with " + uri);
-            }
-            // TODO: If there's no model, we didn't collect the smithy files (so no document), so I'm thinking
-            //  maybe we do nothing here. But we could also still update the document, and
-            //  just compute the shapes later?
-            return;
-        }
-
-        String path = UriAdapter.toPath(uri);
-
-        SmithyFile previous = smithyFiles.get(path);
-        Model currentModel = modelResult.getResult().get(); // unwrap would throw if the model is broken
-
-        Model.Builder builder = currentModel.toBuilder();
-        for (Shape shape : previous.getShapes()) {
-            builder.removeShape(shape.getId());
-        }
-        Model rest = builder.build();
-
-        ModelAssembler assembler = assemblerFactory.get()
-                .addModel(rest)
-                .addUnparsedModel(path, document.copyText());
-
-        if (!validate) {
-            assembler.disableValidation();
-        }
-
-        this.modelResult = assembler.assemble();
-
-        Set<Shape> updatedShapes = getFileShapes(path, previous.getShapes());
-        // TODO: Could cache validation events
-        SmithyFile updated = ProjectLoader.buildSmithyFile(path, document, updatedShapes).build();
-        this.smithyFiles.put(path, updated);
-    }
-
-    /**
-     * Updates this project by adding and removing files. Also runs model validation.
+     * <p>Added files are assumed to not be managed by the client, and are loaded from disk.
      *
      * @param addUris URIs of files to add
      * @param removeUris URIs of files to remove
      */
-    public void updateFiles(List<String> addUris, List<String> removeUris) {
+    public void updateFiles(Set<String> addUris, Set<String> removeUris) {
+        updateFiles(addUris, removeUris, Collections.emptySet(), true);
+    }
+
+    /**
+     * Updates this project by adding, removing, and changing files. Can optionally run validation.
+     *
+     * <p>Added files are assumed to not be managed by the client, and are loaded from disk.
+     *
+     * @param addUris URIs of files to add
+     * @param removeUris URIs of files to remove
+     * @param changeUris URIs of files that changed
+     * @param validate Whether to run model validation.
+     */
+    public void updateFiles(Set<String> addUris, Set<String> removeUris, Set<String> changeUris, boolean validate) {
         if (!modelResult.getResult().isPresent()) {
-            LOGGER.severe("Attempted to update files in project with no model: " + addUris + " " + removeUris);
+            // TODO: If there's no model, we didn't collect the smithy files (so no document), so I'm thinking
+            //  maybe we do nothing here. But we could also still update the document, and
+            //  just compute the shapes later?
+            LOGGER.severe("Attempted to update files in project with no model: "
+                          + addUris + " " + removeUris + " " + changeUris);
             return;
         }
 
-        if (addUris.isEmpty() && removeUris.isEmpty()) {
+        if (addUris.isEmpty() && removeUris.isEmpty() && changeUris.isEmpty()) {
             LOGGER.info("No files provided to update");
             return;
         }
 
-        Model currentModel = modelResult.getResult().get();
+        Model currentModel = modelResult.getResult().get(); // unwrap would throw if the model is broken
         ModelAssembler assembler = assemblerFactory.get();
-        if (!removeUris.isEmpty()) {
-            Model.Builder builder = currentModel.toBuilder();
+
+        // So we don't have to recompute the paths later
+        Set<String> removedPaths = new HashSet<>(removeUris.size());
+        Set<String> changedPaths = new HashSet<>(changeUris.size());
+
+        Set<String> visited = new HashSet<>();
+
+        if (!removeUris.isEmpty() || !changeUris.isEmpty()) {
+            Model.Builder builder = prepBuilderForReload(currentModel);
+
             for (String uri : removeUris) {
                 String path = UriAdapter.toPath(uri);
+                removedPaths.add(path);
+
+                removeFileForReload(assembler, builder, path, visited);
+                removeDependentsForReload(assembler, builder, path, visited);
+
                 // Note: no need to remove anything from sources/imports, since they're
                 //  based on what's in the build files.
-                SmithyFile smithyFile = smithyFiles.remove(path);
-                if (smithyFile == null) {
-                    LOGGER.severe("Attempted to remove file not in project: " + uri);
-                    continue;
-                }
-                for (Shape shape : smithyFile.getShapes()) {
-                    builder.removeShape(shape.getId());
+                smithyFiles.remove(path);
+            }
+
+            for (String uri : changeUris) {
+                String path = UriAdapter.toPath(uri);
+                changedPaths.add(path);
+
+                removeFileForReload(assembler, builder, path, visited);
+                removeDependentsForReload(assembler, builder, path, visited);
+            }
+
+            // visited will be a superset of removePaths
+            addRemainingMetadataForReload(builder, visited);
+
+            assembler.addModel(builder.build());
+
+            for (String visitedPath : visited) {
+                // Only add back stuff we aren't trying to remove.
+                // Only removed paths will have had their SmithyFile removed.
+                if (!removedPaths.contains(visitedPath)) {
+                    assembler.addUnparsedModel(visitedPath, smithyFiles.get(visitedPath).getDocument().copyText());
                 }
             }
-            assembler.addModel(builder.build());
         } else {
             assembler.addModel(currentModel);
         }
@@ -246,7 +253,28 @@ public final class Project {
             assembler.addImport(UriAdapter.toPath(uri));
         }
 
+        if (!validate) {
+            assembler.disableValidation();
+        }
+
         this.modelResult = assembler.assemble();
+        this.perFileMetadata = ProjectLoader.computePerFileMetadata(this.modelResult);
+        this.smithyFileDependenciesIndex = SmithyFileDependenciesIndex.compute(this.modelResult);
+
+        for (String visitedPath : visited) {
+            if (!removedPaths.contains(visitedPath)) {
+                SmithyFile current = smithyFiles.get(visitedPath);
+                Set<Shape> updatedShapes = getFileShapes(visitedPath, smithyFiles.get(visitedPath).getShapes());
+                // Only recompute the rest of the smithy file if it changed
+                if (changedPaths.contains(visitedPath)) {
+                    // TODO: Could cache validation events
+                    this.smithyFiles.put(visitedPath,
+                            ProjectLoader.buildSmithyFile(visitedPath, current.getDocument(), updatedShapes).build());
+                } else {
+                    current.setShapes(updatedShapes);
+                }
+            }
+        }
 
         for (String uri : addUris) {
             String path = UriAdapter.toPath(uri);
@@ -255,6 +283,79 @@ public final class Project {
             SmithyFile smithyFile = ProjectLoader.buildSmithyFile(path, document, fileShapes)
                     .build();
             smithyFiles.put(path, smithyFile);
+        }
+    }
+
+    // This mainly exists to explain why we remove the metadata
+    private Model.Builder prepBuilderForReload(Model model) {
+        return model.toBuilder()
+                // clearing the metadata here, and adding back only metadata from other files
+                // is the only sure-fire way to make sure everything is truly removed, and we
+                // don't lose anything
+                .clearMetadata();
+    }
+
+    private void removeFileForReload(
+            ModelAssembler assembler,
+            Model.Builder builder,
+            String path,
+            Set<String> visited
+    ) {
+        if (path == null || visited.contains(path) || path.equals(SourceLocation.none().getFilename())) {
+            return;
+        }
+
+        visited.add(path);
+
+        for (Shape shape : smithyFiles.get(path).getShapes()) {
+            builder.removeShape(shape.getId());
+
+            // This shape may have traits applied to it in other files,
+            // so simply removing the shape loses the information about
+            // those traits.
+
+            // This shape's dependencies files will be removed and re-loaded
+            smithyFileDependenciesIndex.getDependenciesFiles(shape).forEach((depPath) ->
+                    removeFileForReload(assembler, builder, depPath, visited));
+
+            // Traits applied in other files are re-added to the assembler so if/when the shape
+            // is reloaded, it will have those traits
+            smithyFileDependenciesIndex.getTraitsAppliedInOtherFiles(shape).forEach((trait) ->
+                    assembler.addTrait(shape.getId(), trait));
+        }
+    }
+
+    private void removeDependentsForReload(
+            ModelAssembler assembler,
+            Model.Builder builder,
+            String path,
+            Set<String> visited
+    ) {
+        // This file may apply traits to shapes in other files. Normally, letting the assembler simply reparse
+        // the file would be fine because it would ignore the duplicated trait application coming from the same
+        // source location. But if the apply statement is changed/removed, the old application isn't removed, so we
+        // could get a duplicate trait, or a merged array trait.
+        smithyFileDependenciesIndex.getDependentFiles(path).forEach((depPath) -> {
+            removeFileForReload(assembler, builder, depPath, visited);
+        });
+        smithyFileDependenciesIndex.getAppliedTraitsInFile(path).forEach((shapeId, traits) -> {
+            Shape shape = builder.getCurrentShapes().get(shapeId);
+            if (shape != null) {
+                builder.removeShape(shapeId);
+                AbstractShapeBuilder<?, ?> b = Shape.shapeToBuilder(shape);
+                for (Trait trait : traits) {
+                    b.removeTrait(trait.toShapeId());
+                }
+                builder.addShape(b.build());
+            }
+        });
+    }
+
+    private void addRemainingMetadataForReload(Model.Builder builder, Set<String> filesToSkip) {
+        for (Map.Entry<String, Map<String, Node>> e : this.perFileMetadata.entrySet()) {
+            if (!filesToSkip.contains(e.getKey())) {
+                e.getValue().forEach(builder::putMetadataProperty);
+            }
         }
     }
 
@@ -272,12 +373,13 @@ public final class Project {
 
     static final class Builder {
         private Path root;
-        private final List<Path> sources = new ArrayList<>();
-        private final List<Path> imports = new ArrayList<>();
+        private ProjectConfig config = ProjectConfig.empty();
         private final List<Path> dependencies = new ArrayList<>();
         private final Map<String, SmithyFile> smithyFiles = new HashMap<>();
         private ValidatedResult<Model> modelResult;
         private Supplier<ModelAssembler> assemblerFactory = Model::assembler;
+        private Map<String, Map<String, Node>> perFileMetadata = new HashMap<>();
+        private SmithyFileDependenciesIndex smithyFileDependenciesIndex = SmithyFileDependenciesIndex.EMPTY;
 
         private Builder() {
         }
@@ -287,25 +389,8 @@ public final class Project {
             return this;
         }
 
-        public Builder sources(List<Path> paths) {
-            this.sources.clear();
-            this.sources.addAll(paths);
-            return this;
-        }
-
-        public Builder addSource(Path path) {
-            this.sources.add(path);
-            return this;
-        }
-
-        public Builder imports(List<Path> paths) {
-            this.imports.clear();
-            this.imports.addAll(paths);
-            return this;
-        }
-
-        public Builder addImport(Path path) {
-            this.imports.add(path);
+        public Builder config(ProjectConfig config) {
+            this.config = config;
             return this;
         }
 
@@ -333,6 +418,16 @@ public final class Project {
 
         public Builder assemblerFactory(Supplier<ModelAssembler> assemblerFactory) {
             this.assemblerFactory = assemblerFactory;
+            return this;
+        }
+
+        public Builder perFileMetadata(Map<String, Map<String, Node>> perFileMetadata) {
+            this.perFileMetadata = perFileMetadata;
+            return this;
+        }
+
+        public Builder smithyFileDependenciesIndex(SmithyFileDependenciesIndex smithyFileDependenciesIndex) {
+            this.smithyFileDependenciesIndex = smithyFileDependenciesIndex;
             return this;
         }
 

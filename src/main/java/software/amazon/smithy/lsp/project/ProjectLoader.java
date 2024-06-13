@@ -16,9 +16,11 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -35,12 +37,16 @@ import software.amazon.smithy.lsp.util.Result;
 import software.amazon.smithy.model.Model;
 import software.amazon.smithy.model.loader.ModelAssembler;
 import software.amazon.smithy.model.loader.ModelDiscovery;
+import software.amazon.smithy.model.node.ArrayNode;
+import software.amazon.smithy.model.node.Node;
 import software.amazon.smithy.model.shapes.Shape;
 import software.amazon.smithy.model.validation.ValidatedResult;
 import software.amazon.smithy.utils.IoUtils;
 
 /**
  * Loads {@link Project}s.
+ *
+ * TODO: There's a lot of duplicated logic and redundant code here to refactor.
  */
 public final class ProjectLoader {
     private static final Logger LOGGER = Logger.getLogger(ProjectLoader.class.getName());
@@ -51,14 +57,16 @@ public final class ProjectLoader {
     /**
      * Loads a detached (single-file) {@link Project} with the given file.
      *
-     * <p>Unlike {@link #load(Path)}, this method isn't fallible since it
-     * doesn't do any IO.
+     * <p>Unlike {@link #load(Path, ProjectManager, Set)}, this method isn't
+     * fallible since it doesn't do any IO that we would want to recover an
+     * error from.
      *
      * @param uri URI of the file to load into a project
      * @param text Text of the file to load into a project
      * @return The loaded project
      */
     public static Project loadDetached(String uri, String text) {
+        LOGGER.info("Loading detached project at " + uri);
         String asPath = UriAdapter.toPath(uri);
         ValidatedResult<Model> modelResult = Model.assembler()
                 .addUnparsedModel(asPath, text)
@@ -68,42 +76,36 @@ public final class ProjectLoader {
         List<Path> sources = Collections.singletonList(path);
 
         Project.Builder builder = Project.builder()
-                .root(path) // TODO: Does this need to be a directory?
-                .sources(sources)
+                .root(path.getParent())
+                .config(ProjectConfig.builder()
+                        .sources(Collections.singletonList(asPath))
+                        .build())
                 .modelResult(modelResult);
 
-        Map<String, Set<Shape>> shapes;
-        if (modelResult.getResult().isPresent()) {
-            Model model = modelResult.getResult().get();
-            shapes = model.shapes().collect(Collectors.groupingByConcurrent(
-                    shape -> shape.getSourceLocation().getFilename(), Collectors.toSet()));
-        } else {
-            shapes = new HashMap<>(0);
-        }
-
-        Map<String, SmithyFile> smithyFiles = new HashMap<>(shapes.size());
-        for (Map.Entry<String, Set<Shape>> entry : shapes.entrySet()) {
-            String filePath = entry.getKey();
-            Document document;
+        Map<String, SmithyFile> smithyFiles = computeSmithyFiles(sources, modelResult, (filePath) -> {
+            // NOTE: isSmithyJarFile and isJarFile typically take in a URI (filePath is a path), but
+            // the model stores jar paths as URIs
             if (UriAdapter.isSmithyJarFile(filePath) || UriAdapter.isJarFile(filePath)) {
-                document = Document.of(IoUtils.readUtf8Url(UriAdapter.jarUrl(filePath)));
+                return Document.of(IoUtils.readUtf8Url(UriAdapter.jarUrl(filePath)));
             } else if (filePath.equals(asPath)) {
-                document = Document.of(text);
+                return Document.of(text);
             } else {
-                LOGGER.severe("Found unexpected file when loading detached (single file) project: " + filePath);
-                continue;
+                // TODO: Make generic 'please file a bug report' exception
+                throw new IllegalStateException(
+                        "Attempted to load an unknown source file ("
+                        + filePath + ") in detached project at "
+                        + asPath + ". This is a bug in the language server.");
             }
-            Set<Shape> fileShapes = entry.getValue();
-            SmithyFile smithyFile = buildSmithyFile(filePath, document, fileShapes).build();
-            smithyFiles.put(filePath, smithyFile);
-        }
-        builder.smithyFiles(smithyFiles);
+        });
 
-        return builder.build();
+        return builder.smithyFiles(smithyFiles)
+                .perFileMetadata(computePerFileMetadata(modelResult))
+                .build();
     }
 
     /**
-     * Loads a {@link Project} from a given root path.
+     * Loads a {@link Project} at the given root path, using any {@code managedDocuments}
+     * instead of loading from disk.
      *
      * <p>This will return a failed result if loading the project config, resolving
      * the dependencies, or creating the model assembler fail.
@@ -114,9 +116,15 @@ public final class ProjectLoader {
      * reason about how the project was structured.
      *
      * @param root Path of the project root
+     * @param projects Currently loaded projects, for getting content of managed documents
+     * @param managedDocuments URIs of documents managed by the client
      * @return Result of loading the project
      */
-    public static Result<Project, List<Exception>> load(Path root) {
+    public static Result<Project, List<Exception>> load(
+            Path root,
+            ProjectManager projects,
+            Set<String> managedDocuments
+    ) {
         Result<ProjectConfig, List<Exception>> configResult = ProjectConfigLoader.loadFromRoot(root);
         if (configResult.isErr()) {
             return Result.err(configResult.unwrapErr());
@@ -130,15 +138,6 @@ public final class ProjectLoader {
 
         List<Path> dependencies = resolveResult.unwrap();
 
-        List<Path> sources = config.getSources().stream()
-                .map(root::resolve)
-                .map(Path::normalize)
-                .collect(Collectors.toList());
-        List<Path> imports = config.getImports().stream()
-                .map(root::resolve)
-                .map(Path::normalize)
-                .collect(Collectors.toList());
-
         // The model assembler factory is used to get assemblers that already have the correct
         // dependencies resolved for future loads
         Result<Supplier<ModelAssembler>, Exception> assemblerFactoryResult = createModelAssemblerFactory(dependencies);
@@ -149,11 +148,32 @@ public final class ProjectLoader {
         Supplier<ModelAssembler> assemblerFactory = assemblerFactoryResult.unwrap();
         ModelAssembler assembler = assemblerFactory.get();
 
-        Result<ValidatedResult<Model>, Exception> loadModelResult = Result.ofFallible(() ->
-                loadModel(assembler, sources, imports));
+        // Note: The model assembler can handle loading all smithy files in a directory, so there's some potential
+        //  here for inconsistent behavior.
+        List<Path> allSmithyFilePaths = collectAllSmithyPaths(root, config.getSources(), config.getImports());
+
+        Result<ValidatedResult<Model>, Exception> loadModelResult = Result.ofFallible(() -> {
+            for (Path path : allSmithyFilePaths) {
+                if (!managedDocuments.isEmpty()) {
+                    String pathString = path.toString();
+                    String uri = UriAdapter.toUri(pathString);
+                    if (managedDocuments.contains(uri)) {
+                        assembler.addUnparsedModel(pathString, projects.getDocument(uri).copyText());
+                    } else {
+                        assembler.addImport(path);
+                    }
+                } else {
+                    assembler.addImport(path);
+                }
+            }
+
+            return assembler.assemble();
+        });
         // TODO: Assembler can fail if a file is not found. We can be more intelligent about
         //  handling this case to allow partially loading the project, but we will need to
-        //  collect the errors somehow. For now, just fail
+        //  collect and report the errors somehow. For now, using collectAllSmithyPaths skips
+        //  any files that don't exist, so we're essentially side-stepping the issue by
+        //  coincidence.
         if (loadModelResult.isErr()) {
             return Result.err(Collections.singletonList(loadModelResult.unwrapErr()));
         }
@@ -162,47 +182,70 @@ public final class ProjectLoader {
 
         Project.Builder projectBuilder = Project.builder()
                 .root(root)
-                .sources(sources)
-                .imports(imports)
+                .config(config)
                 .dependencies(dependencies)
                 .modelResult(modelResult)
                 .assemblerFactory(assemblerFactory);
 
-        Map<String, Set<Shape>> shapes;
+        Map<String, SmithyFile> smithyFiles = computeSmithyFiles(allSmithyFilePaths, modelResult, (filePath) -> {
+            // NOTE: isSmithyJarFile and isJarFile typically take in a URI (filePath is a path), but
+            // the model stores jar paths as URIs
+            if (UriAdapter.isSmithyJarFile(filePath) || UriAdapter.isJarFile(filePath)) {
+                // Technically this can throw
+                return Document.of(IoUtils.readUtf8Url(UriAdapter.jarUrl(filePath)));
+            }
+            // TODO: We recompute uri from path and vice-versa very frequently,
+            //  maybe we can cache it.
+            String uri = UriAdapter.toUri(filePath);
+            if (managedDocuments.contains(uri)) {
+                return projects.getDocument(uri);
+            }
+            // There may be a more efficient way of reading this
+            return Document.of(IoUtils.readUtf8File(filePath));
+        });
+
+        return Result.ok(projectBuilder.smithyFiles(smithyFiles)
+                .perFileMetadata(computePerFileMetadata(modelResult))
+                .smithyFileDependenciesIndex(SmithyFileDependenciesIndex.compute(modelResult))
+                .build());
+    }
+
+    static Result<Project, List<Exception>> load(Path root) {
+        return load(root, new ProjectManager(), new HashSet<>(0));
+    }
+
+    private static Map<String, SmithyFile> computeSmithyFiles(
+            List<Path> allSmithyFilePaths,
+            ValidatedResult<Model> modelResult,
+            Function<String, Document> documentProvider
+    ) {
+        Map<String, Set<Shape>> shapesByFile;
         if (modelResult.getResult().isPresent()) {
             Model model = modelResult.getResult().get();
-            shapes = model.shapes().collect(Collectors.groupingByConcurrent(
+            shapesByFile = model.shapes().collect(Collectors.groupingByConcurrent(
                     shape -> shape.getSourceLocation().getFilename(), Collectors.toSet()));
         } else {
-            shapes = new HashMap<>(0);
+            shapesByFile = new HashMap<>(allSmithyFilePaths.size());
         }
 
         // There may be smithy files part of the project that aren't part of the model
-        List<Path> allSmithyFilePaths = collectAllSmithyPaths(root, config.getSources(), config.getImports());
-        for (Path path : allSmithyFilePaths) {
-            if (!shapes.containsKey(path.toString())) {
-                shapes.put(path.toString(), Collections.emptySet());
+        for (Path smithyFilePath : allSmithyFilePaths) {
+            String pathString = smithyFilePath.toString();
+            if (!shapesByFile.containsKey(pathString)) {
+                shapesByFile.put(pathString, Collections.emptySet());
             }
         }
 
-        Map<String, SmithyFile> smithyFiles = new HashMap<>(shapes.size());
-        for (Map.Entry<String, Set<Shape>> entry : shapes.entrySet()) {
-            String path = entry.getKey();
-            Document document;
-            if (UriAdapter.isSmithyJarFile(path) || UriAdapter.isJarFile(path)) {
-                // Technically this can throw
-                document = Document.of(IoUtils.readUtf8Url(UriAdapter.jarUrl(path)));
-            } else {
-                // There may be a more efficient way of reading this
-                document = Document.of(IoUtils.readUtf8File(path));
-            }
-            Set<Shape> fileShapes = entry.getValue();
+        Map<String, SmithyFile> smithyFiles = new HashMap<>(allSmithyFilePaths.size());
+        for (Map.Entry<String, Set<Shape>> shapesByFileEntry : shapesByFile.entrySet()) {
+            String path = shapesByFileEntry.getKey();
+            Document document = documentProvider.apply(path);
+            Set<Shape> fileShapes = shapesByFileEntry.getValue();
             SmithyFile smithyFile = buildSmithyFile(path, document, fileShapes).build();
             smithyFiles.put(path, smithyFile);
         }
-        projectBuilder.smithyFiles(smithyFiles);
 
-        return Result.ok(projectBuilder.build());
+        return smithyFiles;
     }
 
     /**
@@ -230,6 +273,37 @@ public final class ProjectLoader {
                 .documentVersion(documentVersion);
     }
 
+    // This is gross, but necessary to deal with the way that array metadata gets merged.
+    // When we try to reload a single file, we need to make sure we remove the metadata for
+    // that file. But if there's array metadata, a single key contains merged elements from
+    // other files. This splits up the metadata by source file, creating an artificial array
+    // node for elements that are merged.
+    //
+    // This definitely has the potential to cause a performance hit if there's a huge amount
+    // of metadata, since we are recomputing this on every change.
+    static Map<String, Map<String, Node>> computePerFileMetadata(ValidatedResult<Model> modelResult) {
+        Map<String, Node> metadata = modelResult.getResult().map(Model::getMetadata).orElse(new HashMap<>(0));
+        Map<String, Map<String, Node>> perFileMetadata = new HashMap<>();
+        for (Map.Entry<String, Node> entry : metadata.entrySet()) {
+            if (entry.getValue().isArrayNode()) {
+                Map<String, ArrayNode.Builder> arrayByFile = new HashMap<>();
+                for (Node node : entry.getValue().expectArrayNode()) {
+                    String filename = node.getSourceLocation().getFilename();
+                    arrayByFile.computeIfAbsent(filename, (f) -> ArrayNode.builder()).withValue(node);
+                }
+                for (Map.Entry<String, ArrayNode.Builder> arrayByFileEntry : arrayByFile.entrySet()) {
+                    perFileMetadata.computeIfAbsent(arrayByFileEntry.getKey(), (f) -> new HashMap<>())
+                            .put(entry.getKey(), arrayByFileEntry.getValue().build());
+                }
+            } else {
+                String filename = entry.getValue().getSourceLocation().getFilename();
+                perFileMetadata.computeIfAbsent(filename, (f) -> new HashMap<>())
+                        .put(entry.getKey(), entry.getValue());
+            }
+        }
+        return perFileMetadata;
+    }
+
     private static Result<Supplier<ModelAssembler>, Exception> createModelAssemblerFactory(List<Path> dependencies) {
         // We don't want the model to be broken when there are unknown traits,
         // because that will essentially disable language server features, so
@@ -252,17 +326,6 @@ public final class ProjectLoader {
         });
     }
 
-    private static ValidatedResult<Model> loadModel(ModelAssembler assembler, List<Path> sources, List<Path> imports) {
-        for (Path path : sources) {
-            assembler.addImport(path);
-        }
-        for (Path path : imports) {
-            assembler.addImport(path);
-        }
-
-        return assembler.assemble();
-    }
-
     private static Result<URLClassLoader, Exception> createDependenciesClassLoader(List<Path> dependencies) {
         // Taken (roughly) from smithy-ci IsolatedRunnable
         try {
@@ -281,11 +344,11 @@ public final class ProjectLoader {
     private static List<Path> collectAllSmithyPaths(Path root, List<String> sources, List<String> imports) {
         List<Path> paths = new ArrayList<>();
         for (String file : sources) {
-            Path path = root.resolve(file);
+            Path path = root.resolve(file).normalize();
             collectDirectory(paths, root, path);
         }
         for (String file : imports) {
-            Path path = root.resolve(file);
+            Path path = root.resolve(file).normalize();
             collectDirectory(paths, root, path);
         }
         return paths;
