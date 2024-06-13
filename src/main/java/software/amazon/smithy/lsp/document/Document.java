@@ -561,7 +561,7 @@ public final class Document {
         // Have to box sadly, unless there's some IntArray I'm not aware of. Maybe IntBuffer
         List<Integer> indicies = new ArrayList<>();
         indicies.add(0);
-        while ((next = buffer.indexOf(System.lineSeparator(), off)) != -1) {
+        while ((next = buffer.indexOf("\n", off)) != -1) {
             indicies.add(next + System.lineSeparator().length());
             off = next + System.lineSeparator().length();
             ++matchCount;
