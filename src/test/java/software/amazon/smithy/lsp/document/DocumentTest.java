@@ -465,7 +465,7 @@ public class DocumentTest {
         return new CustomTypeSafeMatcher<CharSequence>(other) {
             @Override
             protected boolean matchesSafely(CharSequence item) {
-                return other.equals(item.toString());
+                return other.replace("\n", "\\n").replace("\r", "\\r").equals(item.toString().replace("\n", "\\n").replace("\r", "\\r"));
             }
         };
     }

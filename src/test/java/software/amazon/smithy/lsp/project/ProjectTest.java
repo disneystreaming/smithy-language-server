@@ -143,7 +143,7 @@ public class ProjectTest {
 
     @Test
     public void loadsProjectWithMultipleNamespaces() {
-        Path root = Paths.get(getClass().getResource("multiple-namespaces").getFile());
+        Path root = toPath(getClass().getResource("multiple-namespaces"));
         Project project = ProjectLoader.load(root).unwrap();
 
         assertThat(project.getSources(), hasItem(root.resolve("model")));
