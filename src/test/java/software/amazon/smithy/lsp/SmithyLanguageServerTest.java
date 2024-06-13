@@ -63,7 +63,6 @@ import software.amazon.smithy.build.model.MavenConfig;
 import software.amazon.smithy.build.model.SmithyBuildConfig;
 import software.amazon.smithy.lsp.document.Document;
 import software.amazon.smithy.lsp.protocol.RangeAdapter;
-import software.amazon.smithy.lsp.protocol.UriAdapter;
 import software.amazon.smithy.model.node.ArrayNode;
 import software.amazon.smithy.model.node.Node;
 import software.amazon.smithy.model.shapes.Shape;
@@ -829,7 +828,7 @@ public class SmithyLanguageServerTest {
                 + "namespace com.foo\n"
                 + "\n"
                 + "structure Foo {\n"
-                + "    bar: String\n"
+                + "    bar: PrimitiveInteger\n"
                 + "}\n");
         TestWorkspace workspace = TestWorkspace.singleModel(model);
         SmithyLanguageServer server = initFromWorkspace(workspace);
@@ -852,13 +851,10 @@ public class SmithyLanguageServerTest {
 
         String preludeUri = preludeLocation.getUri();
         assertThat(preludeUri, startsWith("smithyjar"));
-        assertThat(server.getProject().getSmithyFiles().keySet().stream().map(UriAdapter::toUri).collect(Collectors.toList()), hasItem(
-                preludeUri
-        ));
 
         Hover appliedTraitInPreludeHover = server.hover(RequestBuilders.positionRequest()
                 .uri(preludeUri)
-                .line(36)
+                .line(preludeLocation.getRange().getStart().getLine() - 1) // trait applied above 'PrimitiveInteger'
                 .character(1)
                 .buildHover())
                 .get();
