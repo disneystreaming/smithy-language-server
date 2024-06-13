@@ -381,7 +381,7 @@ public class DocumentTest {
         assertThat(line.borrowSpan(0, 4), nullValue()); // oob
         assertThat(multi.borrowSpan(0, safeIndex(4, 1)), string(safeString("abc\n"))); // with newline
         assertThat(multi.borrowSpan(3, safeIndex(5, 1)), string(safeString("\nd"))); // inner
-        assertThat(multi.borrowSpan(safeIndex(5, 2), safeIndex(9, 2)), string(safeString("ef\n\n"))); // up to end
+        assertThat(multi.borrowSpan(safeIndex(5, 1), safeIndex(9, 3)), string(safeString("ef\n\n"))); // up to end
     }
 
     @Test
