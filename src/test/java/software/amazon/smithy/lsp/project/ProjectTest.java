@@ -258,7 +258,7 @@ public class ProjectTest {
                 equalTo(root.resolve("model/one.smithy").toString()),
                 equalTo(root.resolve("model2/two.smithy").toString()),
                 equalTo(root.resolve("model3/three.smithy").toString()),
-                containsString(root.resolve("smithy-test-traits.jar") + "!/META-INF/smithy/smithy.test.json")));
+                containsString("smithy-test-traits.jar!/META-INF/smithy/smithy.test.json")));
         assertThat(project.getDependencies(), hasItem(root.resolve("smithy-test-traits.jar")));
     }
 
