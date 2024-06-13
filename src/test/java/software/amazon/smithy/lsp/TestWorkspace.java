@@ -56,7 +56,8 @@ public class TestWorkspace {
      */
     public void addModel(String relativePath, String model) {
         try {
-            Files.write(root.resolve(relativePath), model.getBytes(StandardCharsets.UTF_8));
+            Files.write(root.resolve(relativePath), model.replace("\n", System.lineSeparator())
+                    .getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -172,7 +173,8 @@ public class TestWorkspace {
 
         private static void writeModels(Path toDir, Map<String, String> models) throws Exception {
             for (Map.Entry<String, String> entry : models.entrySet()) {
-                Files.write(toDir.resolve(entry.getKey()), entry.getValue().getBytes(StandardCharsets.UTF_8));
+                Files.write(toDir.resolve(entry.getKey()),
+                        entry.getValue().replace("\n", System.lineSeparator()).getBytes(StandardCharsets.UTF_8));
             }
         }
     }
