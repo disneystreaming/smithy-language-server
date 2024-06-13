@@ -562,8 +562,8 @@ public final class Document {
         List<Integer> indicies = new ArrayList<>();
         indicies.add(0);
         while ((next = buffer.indexOf("\n", off)) != -1) {
-            indicies.add(next + System.lineSeparator().length());
-            off = next + System.lineSeparator().length();
+            indicies.add(next + 1);
+            off = next + 1;
             ++matchCount;
         }
         return indicies.stream().mapToInt(Integer::intValue).toArray();
