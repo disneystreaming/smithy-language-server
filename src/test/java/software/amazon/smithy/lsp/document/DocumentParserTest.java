@@ -40,7 +40,7 @@ public class DocumentParserTest {
                       "ghi\n" +
                       "\n" +
                       "\n";
-        DocumentParser parser = DocumentParser.forDocument(Document.of(text));
+        DocumentParser parser = DocumentParser.of(safeString(text));
         assertEquals(0, parser.position());
         assertEquals(1, parser.line());
         assertEquals(1, parser.column());

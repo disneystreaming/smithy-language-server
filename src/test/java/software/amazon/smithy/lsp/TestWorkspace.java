@@ -174,7 +174,7 @@ public class TestWorkspace {
         private static void writeModels(Path toDir, Map<String, String> models) throws Exception {
             for (Map.Entry<String, String> entry : models.entrySet()) {
                 Files.write(toDir.resolve(entry.getKey()),
-                        entry.getValue().replace("\n", System.lineSeparator()).getBytes(StandardCharsets.UTF_8));
+                        entry.getValue().getBytes(StandardCharsets.UTF_8));
             }
         }
     }
