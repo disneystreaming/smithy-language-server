@@ -24,11 +24,11 @@ import static software.amazon.smithy.lsp.SmithyMatchers.eventWithMessage;
 import static software.amazon.smithy.lsp.SmithyMatchers.hasShapeWithId;
 import static software.amazon.smithy.lsp.SmithyMatchers.hasValue;
 import static software.amazon.smithy.lsp.UtilMatchers.anOptionalOf;
+import static software.amazon.smithy.lsp.project.ProjectTest.toPath;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -560,7 +560,7 @@ public class SmithyLanguageServerTest {
 
     @Test
     public void definitionWithApply() throws Exception {
-        Path root = Paths.get(getClass().getResource("project/apply").getPath());
+        Path root = toPath(getClass().getResource("project/apply"));
         SmithyLanguageServer server = initFromRoot(root);
         String foo = root.resolve("model/foo.smithy").toUri().toString();
         String bar = root.resolve("model/bar.smithy").toUri().toString();
