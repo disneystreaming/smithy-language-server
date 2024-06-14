@@ -450,14 +450,22 @@ public class DocumentTest {
         assertThat(technicallyValid.getDocumentIdAt(new Position(0, 56)), documentShapeId("foo$bar", DocumentId.Type.RELATIVE_WITH_MEMBER));
     }
 
-    private static int safeIndex(int standardOffset, int line) {
+    // This is used to convert the character offset in a file that assumes a single character
+    // line break, and make that same offset safe with multi character line breaks.
+    //
+    // This is preferable to simply adjusting how we test Document because bugs in these low-level
+    // primitive methods will break a lot of stuff, so it's good to be exact.
+    public static int safeIndex(int standardOffset, int line) {
         return standardOffset + (line * (System.lineSeparator().length() - 1));
     }
 
-    private static String safeString(String s) {
+    // Makes a string literal with '\n' newline characters use the actual OS line separator.
+    // Don't use this if you didn't manually type out the '\n's.
+    // TODO: Remove this for textblocks
+    public static String safeString(String s) {
         return s.replace("\n", System.lineSeparator());
     }
-    
+
     private static Document makeDocument(String s) {
         return Document.of(safeString(s));
     }

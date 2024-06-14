@@ -40,7 +40,7 @@ public final class UriAdapter {
     /**
      * @param path Path to convert to LSP URI
      * @return A URI representation of the given {@code path}, modified to have the
-     *  correct scheme for jars
+     *  correct scheme for our jars
      */
     public static String toUri(String path) {
         if (path.startsWith("jar:file")) {

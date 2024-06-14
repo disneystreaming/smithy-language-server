@@ -11,6 +11,8 @@ import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static software.amazon.smithy.lsp.document.DocumentTest.safeIndex;
+import static software.amazon.smithy.lsp.document.DocumentTest.safeString;
 import static software.amazon.smithy.lsp.document.DocumentTest.string;
 
 import java.util.Map;

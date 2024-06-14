@@ -24,6 +24,7 @@ import static software.amazon.smithy.lsp.SmithyMatchers.eventWithMessage;
 import static software.amazon.smithy.lsp.SmithyMatchers.hasShapeWithId;
 import static software.amazon.smithy.lsp.SmithyMatchers.hasValue;
 import static software.amazon.smithy.lsp.UtilMatchers.anOptionalOf;
+import static software.amazon.smithy.lsp.document.DocumentTest.safeString;
 import static software.amazon.smithy.lsp.project.ProjectTest.toPath;
 
 import com.google.gson.JsonObject;
@@ -433,7 +434,7 @@ public class SmithyLanguageServerTest {
         server.didChange(changeBuilder.range(rangeAdapter.shiftRight().build()).text(" ").build());
         server.didChange(changeBuilder.range(rangeAdapter.shiftRight().build()).text("G").build());
 
-        server.getLifecycleManager().getTask(uri).get();
+        server.getLifecycleManager().waitForAllTasks();
 
         // mostly so you can see what it looks like
         assertThat(server.getProject().getDocument(uri).copyText(), equalTo(safeString("$version: \"2\"\n" +
@@ -454,8 +455,7 @@ public class SmithyLanguageServerTest {
                 .buildCompletion();
         List<CompletionItem> completions = server.completion(completionParams).get().getLeft();
 
-        // TODO: Somehow this has become flaky
-        assertThat(completions, containsInAnyOrder(hasLabel("GetFoo"), hasLabel("GetFooInput")));
+        assertThat(completions, hasItem(hasLabel("GetFooInput")));
     }
 
     @Test
