@@ -20,9 +20,9 @@ object lsp extends MavenModule with PublishModule {
   def javacOptions = T {
     super.javacOptions() ++ Seq(
       "-source",
-      "1.8",
+      "21",
       "-target",
-      "1.8"
+      "21"
     )
   }
 
