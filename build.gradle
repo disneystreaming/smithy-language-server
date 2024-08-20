@@ -34,9 +34,9 @@ plugins {
 
     id "maven-publish"
     id "signing"
-    id "io.codearte.nexus-staging" version "0.30.0"
     id "com.palantir.git-version" version "0.12.3"
     id "checkstyle"
+    id "org.jreleaser" version "1.13.0"
 }
 
 
@@ -73,6 +73,8 @@ ext {
 
 println "Smithy Language Server version: '${libraryVersion}'"
 
+def stagingDirectory = rootProject.layout.buildDirectory.dir("staging")
+
 allprojects {
     apply plugin: "java"
     apply plugin: "maven-publish"
@@ -89,14 +91,9 @@ repositories {
 
 publishing {
     repositories {
-        mavenCentral {
-            url = uri("https://aws.oss.sonatype.org/service/local/staging/deploy/maven2/")
-            if (project.hasProperty("sonatypeUser")) {
-                credentials {
-                    username = project.property("sonatypeUser")
-                    password = project.property("sonatypePassword")
-                }
-            }
+        maven {
+            name = "localStaging"
+            url = stagingDirectory
         }
     }
 
@@ -118,7 +115,7 @@ publishing {
                 pom {
                     name.set("Smithy Language Server")
                     description.set(project.description)
-                    url.set("https://github.com/awslabs/smithy-language-server")
+                    url.set("https://github.com/smithy-lang/smithy-language-server")
                     licenses {
                         license {
                             name.set("Apache License 2.0")
@@ -136,34 +133,24 @@ publishing {
                         }
                     }
                     scm {
-                        url.set("https://github.com/awslabs/smithy-language-server.git")
+                        url.set("https://github.com/smithy-lang/smithy-language-server.git")
                     }
                 }
             }
-        }
-    }
-
-    // Don't sign the artifacts if we didn't get a key and password to use.
-    if (project.hasProperty("signingKey") && project.hasProperty("signingPassword")) {
-        signing {
-            useInMemoryPgpKeys(
-                    (String) project.property("signingKey"),
-                    (String) project.property("signingPassword"))
-            sign(publishing.publications["mavenJava"])
         }
     }
 }
 
 
 dependencies {
-    implementation "org.eclipse.lsp4j:org.eclipse.lsp4j:0.20.0"
+    implementation "org.eclipse.lsp4j:org.eclipse.lsp4j:0.23.1"
     implementation "software.amazon.smithy:smithy-build:[smithyVersion, 2.0["
     implementation "software.amazon.smithy:smithy-cli:[smithyVersion, 2.0["
     implementation "software.amazon.smithy:smithy-model:[smithyVersion, 2.0["
     implementation "software.amazon.smithy:smithy-syntax:[smithyVersion, 2.0["
 
     testImplementation "org.junit.jupiter:junit-jupiter:5.10.0"
-    testImplementation "org.hamcrest:hamcrest:2.1"
+    testImplementation "org.hamcrest:hamcrest:2.2"
 
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
@@ -212,8 +199,9 @@ tasks.named("checkstyleTest") {
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
 }
 
 jar {
@@ -227,27 +215,55 @@ jar {
         exclude "META-INF/*.DSA"
         exclude "META-INF/*.RSA"
         exclude "reflect.properties"
+        // Included by dependencies in later versions of java, causes duplicate entries in the output jar
+        exclude "**/module-info.class"
     }
     manifest {
         attributes("Main-Class": "software.amazon.smithy.lsp.Main")
     }
 }
 
-/*
- * Sonatype Staging Finalization
- * ====================================================
- *
- * When publishing to Maven Central, we need to close the staging
- * repository and release the artifacts after they have been
- * validated. This configuration is for the root project because
- * it operates at the "group" level.
- */
-if (project.hasProperty("sonatypeUser") && project.hasProperty("sonatypePassword")) {
-    apply plugin: "io.codearte.nexus-staging"
-    nexusStaging {
-        packageGroup = "software.amazon"
-        stagingProfileId = "e789115b6c941"
-        username = project.property("sonatypeUser")
-        password = project.property("sonatypePassword")
+jreleaser {
+    dryrun = false
+
+    // Used for creating a tagged release, uploading files and generating changelog.
+    // In the future we can set this up to push release tags to GitHub, but for now it's
+    // set up to do nothing.
+    // https://jreleaser.org/guide/latest/reference/release/index.html
+    release {
+        generic {
+            enabled = true
+            skipRelease = true
+        }
+    }
+
+    // Used to announce a release to configured announcers.
+    // https://jreleaser.org/guide/latest/reference/announce/index.html
+    announce {
+        active = "NEVER"
+    }
+
+    // Signing configuration.
+    // https://jreleaser.org/guide/latest/reference/signing.html
+    signing {
+        active = "ALWAYS"
+        armored = true
+    }
+
+    // Configuration for deploying to Maven Central.
+    // https://jreleaser.org/guide/latest/examples/maven/maven-central.html#_gradle
+    deploy {
+        maven {
+            nexus2 {
+                "maven-central" {
+                    active = "ALWAYS"
+                    url = "https://aws.oss.sonatype.org/service/local"
+                    snapshotUrl = "https://aws.oss.sonatype.org/content/repositories/snapshots"
+                    closeRepository = true
+                    releaseRepository = true
+                    stagingRepository(stagingDirectory.get().toString())
+                }
+            }
+        }
     }
 }
