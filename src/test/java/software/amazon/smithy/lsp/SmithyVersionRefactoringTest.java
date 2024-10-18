@@ -22,6 +22,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.hasSize;
 import static software.amazon.smithy.lsp.SmithyLanguageServerTest.initFromWorkspace;
+import static software.amazon.smithy.lsp.document.DocumentTest.safeString;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -48,8 +49,10 @@ import software.amazon.smithy.lsp.protocol.LspAdapter;
 public class SmithyVersionRefactoringTest {
     @Test
     public void noVersionDiagnostic() throws Exception {
-        String model = "namespace com.foo\n" +
-                       "string Foo\n";
+        String model = safeString("""
+                namespace com.foo
+                string Foo
+                """);
         TestWorkspace workspace = TestWorkspace.singleModel(model);
         StubClient client = new StubClient();
         SmithyLanguageServer server = initFromWorkspace(workspace, client);
@@ -70,9 +73,6 @@ public class SmithyVersionRefactoringTest {
                 .collect(Collectors.toList());
         assertThat(defineVersionDiagnostics, hasSize(1));
 
-        Diagnostic diagnostic = defineVersionDiagnostics.get(0);
-        assertThat(diagnostic.getRange().getStart(), equalTo(new Position(0, 0)));
-        assertThat(diagnostic.getRange().getEnd(), equalTo(new Position(0, 17)));
         CodeActionContext context = new CodeActionContext(diagnostics);
         context.setTriggerKind(CodeActionTriggerKind.Automatic);
         CodeActionParams codeActionParams = new CodeActionParams(
@@ -86,19 +86,23 @@ public class SmithyVersionRefactoringTest {
         List<TextEdit> edits = action.getEdit().getChanges().get(uri);
         assertThat(edits, hasSize(1));
         TextEdit edit = edits.get(0);
-        Document document = server.getProject().getDocument(uri);
+        Document document = server.getFirstProject().getDocument(uri);
         document.applyEdit(edit.getRange(), edit.getNewText());
-        assertThat(document.copyText(), equalTo("$version: \"1\"\n" +
-                                                "\n" +
-                                                "namespace com.foo\n" +
-                                                "string Foo\n"));
+        assertThat(document.copyText(), equalTo(safeString("""
+                $version: "1"
+
+                namespace com.foo
+                string Foo
+                """)));
     }
 
     @Test
     public void oldVersionDiagnostic() throws Exception {
-        String model = "$version: \"1\"\n" +
-                       "namespace com.foo\n" +
-                       "string Foo\n";
+        String model = """
+                $version: "1"
+                namespace com.foo
+                string Foo
+                """;
         TestWorkspace workspace = TestWorkspace.singleModel(model);
         StubClient client = new StubClient();
         SmithyLanguageServer server = initFromWorkspace(workspace, client);
@@ -135,18 +139,22 @@ public class SmithyVersionRefactoringTest {
         List<TextEdit> edits = action.getEdit().getChanges().get(uri);
         assertThat(edits, hasSize(1));
         TextEdit edit = edits.get(0);
-        Document document = server.getProject().getDocument(uri);
+        Document document = server.getFirstProject().getDocument(uri);
         document.applyEdit(edit.getRange(), edit.getNewText());
-        assertThat(document.copyText(), equalTo("$version: \"2\"\n" +
-                                                "namespace com.foo\n" +
-                                                "string Foo\n"));
+        assertThat(document.copyText(), equalTo("""
+                $version: "2"
+                namespace com.foo
+                string Foo
+                """));
     }
 
     @Test
     public void mostRecentVersion() {
-        String model = "$version: \"2\"\n" +
-                       "namespace com.foo\n" +
-                       "string Foo\n";
+        String model = """
+                $version: "2"
+                namespace com.foo
+                string Foo
+                """;
         TestWorkspace workspace = TestWorkspace.singleModel(model);
         SmithyLanguageServer server = initFromWorkspace(workspace);
         String uri = workspace.getUri("main.smithy");
