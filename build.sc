@@ -46,8 +46,6 @@ object lsp extends MavenModule with CiReleaseModule {
     Seq(Developer("baccata", "Olivier Mélois", "https://github.com/baccata"))
   )
 
-  def mainBranch: T[String] = "dss"
-
   def writeVersion: T[PathRef] = T {
     val version = publishVersion()
     val targetDir = T.ctx().dest / "resources"
