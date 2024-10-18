@@ -1,9 +1,14 @@
+import $ivy.`io.chris-kipp::mill-ci-release::0.1.10`
 import mill._
 import scalalib._
 import mill.scalalib.publish._
 import scala.util.Try
+import io.kipp.mill.ci.release.CiReleaseModule
+import io.kipp.mill.ci.release.SonatypeHost
 
-object lsp extends MavenModule with PublishModule {
+object lsp extends MavenModule with CiReleaseModule {
+
+  override def sonatypeHost = Some(SonatypeHost.s01)
 
   def millSourcePath: os.Path = os.pwd
 
@@ -14,8 +19,6 @@ object lsp extends MavenModule with PublishModule {
     ivy"software.amazon.smithy:smithy-model:1.50.0",
     ivy"software.amazon.smithy:smithy-syntax:1.50.0"
   )
-
-  def publishVersion = T { gitVersion() }
 
   def javacOptions = T {
     super.javacOptions() ++ Seq(
@@ -43,93 +46,7 @@ object lsp extends MavenModule with PublishModule {
     Seq(Developer("baccata", "Olivier Mélois", "https://github.com/baccata"))
   )
 
-  def gitVersion: T[String] = T.input {
-
-    val gitDirty =
-      os.proc("git", "diff", "HEAD").call().out.lines.nonEmpty
-
-    if (gitDirty) sys.error("Dirty workspace !")
-
-    val commitHash =
-      os.proc("git", "rev-parse", "--short", "HEAD").call().out.lines.head.trim
-
-    val describeResult = os
-      .proc(
-        "git",
-        "describe",
-        "--long",
-        "--tags",
-        "--abbrev=8",
-        "--match",
-        "v[0-9]*",
-        "--always",
-        "--dirty=+dirty"
-      )
-      .call()
-      .out
-      .lines
-      .lastOption
-      .map(_.replaceAll("-([0-9]+)-g([0-9a-f]{8})", "+$1-$2"))
-      .getOrElse(s"v0.0.0-$commitHash")
-    parseVersion(describeResult)
-  }
-
   def mainBranch: T[String] = "dss"
-
-  def latestTag: T[Option[String]] = T {
-    val branch = mainBranch()
-    os.proc("git", "describe", branch, "--abbrev=0", "--tags")
-      .call()
-      .out
-      .lines
-      .headOption
-  }
-
-  object int {
-    def unapply(s: String) = s.toIntOption
-  }
-
-  object distanceToTag {
-    def unapply(s: String): Option[Int] = {
-      Option(s).flatMap(_.toIntOption).orElse(Some(0))
-    }
-  }
-
-  object sha {
-    private val shaRegex = """([0-9a-f]{8})""".r
-    def unapply(s: String): Option[String] =
-      if (shaRegex.pattern.matcher(s).matches()) Some(s) else None
-  }
-
-  object nonCommittedCode {
-    def unapply(s: String): Option[Boolean] = Some(Option(s).isDefined)
-  }
-
-  def parseVersion(s: String): String = s.trim match {
-    case s"v$tag+${int(dist)}-${sha(s)}+dirty" =>
-      version(Some(tag), dist, s, dirty = true)
-    case s"v$tag+${int(dist)}-${sha(s)}" =>
-      version(Some(tag), dist, s, dirty = false)
-    case s"${sha(s)}+dirty" =>
-      version(None, 0, s, dirty = true)
-    case s"${sha(s)}" =>
-      version(None, 0, s, dirty = false)
-    case s"v$tag" =>
-      version(Some(tag), 0, s, dirty = false)
-  }
-
-  def version(
-      maybeTag: Option[String],
-      distance: Int,
-      sha: String,
-      dirty: Boolean
-  ): String = {
-    val untagged = if (sha.isEmpty) "" else s"+$distance-$sha"
-    val tagged = if (distance > 0) s"+$distance-$sha" else ""
-    val version = maybeTag.fold(s"0.0.0$untagged")(tag => s"$tag$tagged")
-    val dirtySuffix = if (dirty) "-SNAPSHOT" else ""
-    s"$version$dirtySuffix"
-  }
 
   def writeVersion: T[PathRef] = T {
     val version = publishVersion()
