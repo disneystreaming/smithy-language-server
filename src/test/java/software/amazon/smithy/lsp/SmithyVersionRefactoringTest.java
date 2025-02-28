@@ -60,7 +60,8 @@ public class SmithyVersionRefactoringTest {
 
         server.didOpen(new RequestBuilders.DidOpen().uri(uri).text(model).build());
 
-        List<Diagnostic> diagnostics = server.getFileDiagnostics(uri);
+        List<Diagnostic> diagnostics = SmithyDiagnostics.getFileDiagnostics(
+                server.getState().findProjectAndFile(uri), server.getMinimumSeverity());
         List<String> codes = diagnostics.stream()
                 .filter(d -> d.getCode().isLeft())
                 .map(d -> d.getCode().getLeft())
@@ -86,7 +87,7 @@ public class SmithyVersionRefactoringTest {
         List<TextEdit> edits = action.getEdit().getChanges().get(uri);
         assertThat(edits, hasSize(1));
         TextEdit edit = edits.get(0);
-        Document document = server.getFirstProject().getDocument(uri);
+        Document document = server.getState().findProjectAndFile(uri).file().document();
         document.applyEdit(edit.getRange(), edit.getNewText());
         assertThat(document.copyText(), equalTo(safeString("""
                 $version: "1"
@@ -110,7 +111,8 @@ public class SmithyVersionRefactoringTest {
 
         server.didOpen(new RequestBuilders.DidOpen().uri(uri).text(model).build());
 
-        List<Diagnostic> diagnostics = server.getFileDiagnostics(uri);
+        List<Diagnostic> diagnostics = SmithyDiagnostics.getFileDiagnostics(
+                server.getState().findProjectAndFile(uri), server.getMinimumSeverity());
         List<String> codes = diagnostics.stream()
                 .filter(d -> d.getCode().isLeft())
                 .map(d -> d.getCode().getLeft())
@@ -139,7 +141,7 @@ public class SmithyVersionRefactoringTest {
         List<TextEdit> edits = action.getEdit().getChanges().get(uri);
         assertThat(edits, hasSize(1));
         TextEdit edit = edits.get(0);
-        Document document = server.getFirstProject().getDocument(uri);
+        Document document = server.getState().findProjectAndFile(uri).file().document();
         document.applyEdit(edit.getRange(), edit.getNewText());
         assertThat(document.copyText(), equalTo("""
                 $version: "2"
@@ -161,7 +163,8 @@ public class SmithyVersionRefactoringTest {
 
         server.didOpen(new RequestBuilders.DidOpen().uri(uri).text(model).build());
 
-        List<Diagnostic> diagnostics = server.getFileDiagnostics(uri);
+        List<Diagnostic> diagnostics = SmithyDiagnostics.getFileDiagnostics(
+                server.getState().findProjectAndFile(uri), server.getMinimumSeverity());
         List<String> codes = diagnostics.stream()
                 .filter(d -> d.getCode().isLeft())
                 .map(d -> d.getCode().getLeft())
@@ -180,7 +183,8 @@ public class SmithyVersionRefactoringTest {
 
         server.didOpen(new RequestBuilders.DidOpen().uri(uri).text(model).build());
 
-        List<Diagnostic> diagnostics = server.getFileDiagnostics(uri);
+        List<Diagnostic> diagnostics = SmithyDiagnostics.getFileDiagnostics(
+                server.getState().findProjectAndFile(uri), server.getMinimumSeverity());
         List<String> codes = diagnostics.stream()
                 .filter(d -> d.getCode().isLeft())
                 .map(d -> d.getCode().getLeft())

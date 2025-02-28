@@ -5,8 +5,11 @@
 
 package software.amazon.smithy.lsp;
 
+import java.util.Collection;
 import org.eclipse.lsp4j.CompletionItem;
 import org.eclipse.lsp4j.Diagnostic;
+import org.eclipse.lsp4j.InlayHint;
+import org.eclipse.lsp4j.Position;
 import org.eclipse.lsp4j.Range;
 import org.eclipse.lsp4j.TextEdit;
 import org.hamcrest.CustomTypeSafeMatcher;
@@ -35,6 +38,16 @@ public final class LspMatchers {
         };
     }
 
+    public static Matcher<CompletionItem> hasLabelAndEditText(String label, String editText) {
+        return new CustomTypeSafeMatcher<>("label " + label + " editText " + editText) {
+            @Override
+            protected boolean matchesSafely(CompletionItem item) {
+                return label.equals(item.getLabel())
+                       && editText.trim().equals(item.getTextEdit().getLeft().getNewText().trim());
+            }
+        };
+    }
+
     public static Matcher<TextEdit> makesEditedDocument(Document document, String expected) {
         return new CustomTypeSafeMatcher<>("makes an edited document " + expected) {
             @Override
@@ -59,24 +72,49 @@ public final class LspMatchers {
         };
     }
 
+    public static Matcher<Collection<TextEdit>> togetherMakeEditedDocument(Document document, String expected) {
+        return new CustomTypeSafeMatcher<>("make edited document " + expected) {
+            @Override
+            protected boolean matchesSafely(Collection<TextEdit> item) {
+                Document copy = document.copy();
+                for (TextEdit edit : item) {
+                    copy.applyEdit(edit.getRange(), edit.getNewText());
+                }
+                return copy.copyText().equals(expected);
+            }
+
+            @Override
+            public void describeMismatchSafely(Collection<TextEdit> item, Description description) {
+                Document copy = document.copy();
+                for (TextEdit edit : item) {
+                    copy.applyEdit(edit.getRange(), edit.getNewText());
+                }
+                String actual = copy.copyText();
+                description.appendText(String.format("""
+                        expected:
+                        '%s'
+                        but was:
+                        '%s'
+                        """, expected, actual));
+            }
+        };
+    }
+
     public static Matcher<Range> hasText(Document document, Matcher<String> expected) {
-        return new CustomTypeSafeMatcher<>("text in range") {
+        return new CustomTypeSafeMatcher<>("text in range " + expected.toString()) {
             @Override
             protected boolean matchesSafely(Range item) {
-                CharSequence borrowed = document.borrowRange(item);
-                if (borrowed == null) {
-                    return false;
-                }
-                return expected.matches(borrowed.toString());
+                String actual = document.copyRange(item);
+                return expected.matches(actual);
             }
 
             @Override
             public void describeMismatchSafely(Range range, Description description) {
-                if (document.borrowRange(range) == null) {
+                if (document.copyRange(range) == null) {
                     description.appendText("text was null");
                 } else {
                     description.appendDescriptionOf(expected)
-                            .appendText("was " + document.borrowRange(range).toString());
+                            .appendText("was " + document.copyRange(range));
                 }
             }
         };
@@ -92,6 +130,30 @@ public final class LspMatchers {
             @Override
             public void describeMismatchSafely(Diagnostic event, Description description) {
                 description.appendDescriptionOf(message).appendText("was " + event.getMessage());
+            }
+        };
+    }
+
+    public static Matcher<InlayHint> inlayHint(String label, Position position) {
+        return new CustomTypeSafeMatcher<>("Inlay Hint label " + label + " position " +
+                position.getLine() + "," + position.getCharacter()) {
+            @Override
+            protected boolean matchesSafely(InlayHint item) {
+                return item.getLabel().getLeft().equals(label) && position.equals(item.getPosition());
+            }
+            @Override
+            public void describeMismatchSafely(InlayHint item, Description description) {
+                if (!item.getLabel().getLeft().equals(label)) {
+                    description.appendText("Expected inlay hint item with label '"
+                            + label + "' but was '" + item.getLabel().getLeft() + "'");
+                }
+                if (!position.equals(item.getPosition())) {
+                    description.appendText("Expected inlay hint item with position '"
+                            + position.getLine() + "," + position.getCharacter()
+                            + "' but was '" + item.getPosition().getLine()
+                            + "," + item.getPosition().getCharacter()+ "'");
+                }
+
             }
         };
     }
