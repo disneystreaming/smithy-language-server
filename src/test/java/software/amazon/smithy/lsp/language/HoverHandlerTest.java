@@ -7,6 +7,7 @@ package software.amazon.smithy.lsp.language;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static software.amazon.smithy.lsp.document.DocumentTest.safeString;
 
@@ -22,7 +23,6 @@ import software.amazon.smithy.lsp.project.IdlFile;
 import software.amazon.smithy.lsp.project.Project;
 import software.amazon.smithy.lsp.project.ProjectTest;
 import software.amazon.smithy.lsp.project.SmithyFile;
-import software.amazon.smithy.model.validation.Severity;
 
 public class HoverHandlerTest {
     @Test
@@ -338,6 +338,28 @@ public class HoverHandlerTest {
         ));
     }
 
+    @Test
+    public void idRefMemberTraitValue() {
+        TextWithPositions text = TextWithPositions.from("""
+                $version: "2"
+                namespace com.foo
+                
+                @trait
+                structure foo {
+                    @idRef
+                    id: String
+                }
+                
+                @foo(id: %Bar)
+                string Bar
+                """);
+        var hovers = getHovers(text);
+
+        assertThat(hovers, containsInAnyOrder(
+                containsString("string Bar")
+        ));
+    }
+
     private static List<String> getHovers(TextWithPositions text) {
         return getHovers(text.text(), text.positions());
     }
@@ -349,7 +371,7 @@ public class HoverHandlerTest {
         SmithyFile smithyFile = (SmithyFile) project.getProjectFile(uri);
 
         List<String> hover = new ArrayList<>();
-        HoverHandler handler = new HoverHandler(project, (IdlFile) smithyFile, Severity.WARNING);
+        HoverHandler handler = new HoverHandler(project, (IdlFile) smithyFile);
         for (Position position : positions) {
             HoverParams params = RequestBuilders.positionRequest()
                     .uri(uri)
