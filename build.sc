@@ -14,10 +14,10 @@ object lsp extends MavenModule with CiReleaseModule {
 
   def ivyDeps = Agg(
     ivy"org.eclipse.lsp4j:org.eclipse.lsp4j:0.23.1",
-    ivy"software.amazon.smithy:smithy-build:1.50.0",
-    ivy"software.amazon.smithy:smithy-cli:1.50.0",
-    ivy"software.amazon.smithy:smithy-model:1.50.0",
-    ivy"software.amazon.smithy:smithy-syntax:1.50.0"
+    ivy"software.amazon.smithy:smithy-build:1.56.0",
+    ivy"software.amazon.smithy:smithy-cli:1.56.0",
+    ivy"software.amazon.smithy:smithy-model:1.56.0",
+    ivy"software.amazon.smithy:smithy-syntax:1.56.0"
   )
 
   def javacOptions = T {
