@@ -1,3 +1,7 @@
+# ARCHIVED - Use Upstream
+
+We recommend using the [upstream repo](https://github.com/smithy-lang/smithy-language-server) from AWS instead.
+
 ## Smithy Language Server
 [![Build Status](https://github.com/disneystreaming/smithy-language-server/workflows/ci/badge.svg)](https://github.com/disneystreaming/smithy-language-server/actions/workflows/ci.yml)
 
